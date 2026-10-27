@@ -1,84 +1,110 @@
 import './style.css'
+import { products, business } from './store'
 
-type Category = 'Todos' | 'Clássicos' | 'Especiais' | 'Acompanhamentos'
-
-const images = {
-  hero: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1800&q=85',
-  classic: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1000&q=85',
-  double: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?auto=format&fit=crop&w=1000&q=85',
-  bacon: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?auto=format&fit=crop&w=1000&q=85',
-  chicken: 'https://images.unsplash.com/photo-1606755962773-d324e0a13086?auto=format&fit=crop&w=1000&q=85',
-  fries: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=1000&q=85',
-  story: 'https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=1200&q=85',
-  detail: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?auto=format&fit=crop&w=1800&q=85',
-  table: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?auto=format&fit=crop&w=1000&q=85',
-  kitchen: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1000&q=85',
-}
-
-const products = [
-  { name: 'Brasa Classic', category: 'Clássicos' as Category, description: 'Artesanal, cheddar, alface, tomate e molho da casa.', image: images.classic, number: '01' },
-  { name: 'Double Smash', category: 'Clássicos' as Category, description: 'Dois discos de carne, queijo derretido, cebola e molho especial.', image: images.double, number: '02' },
-  { name: 'Bacon Fire', category: 'Especiais' as Category, description: 'Bacon crocante, cheddar e um molho defumado de respeito.', image: images.bacon, number: '03' },
-  { name: 'Crispy Chicken', category: 'Especiais' as Category, description: 'Frango crocante, folhas frescas e maionese temperada.', image: images.chicken, number: '04' },
-  { name: 'Brasa Fries', category: 'Acompanhamentos' as Category, description: 'Batatas douradas e crocantes para dividir — ou não.', image: images.fries, number: '05' },
-]
-
-const icon = (name: string) => {
-  const paths: Record<string, string> = {
-    arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
-    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-    close: '<path d="M6 6l12 12M18 6 6 18"/>',
-    instagram: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5h.01"/>',
+type Cart = Record<string, number>
+type View = 'cardapio' | 'sacola' | 'sobre'
+const key = 'brasa-cart-v2'
+const esc = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!))
+const money = (price: number | null) => price === null ? 'Valor a consultar' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(price / 100)
+const icon = (name: string) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ({ bag: '<path d="M5 7h14l1 14H4L5 7Z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/>', menu: '<path d="M4 5h16M4 12h16M4 19h16"/>', about: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>', plus: '<path d="M12 5v14M5 12h14"/>', arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>', minus: '<path d="M5 12h14"/>' }[name] || '') + '</svg>'
+let cart: Cart = {}
+try {
+  const saved: unknown = JSON.parse(localStorage.getItem(key) || '{}')
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+    for (const product of products) {
+      const quantity = (saved as Record<string, unknown>)[product.id]
+      if (typeof quantity === 'number' && Number.isInteger(quantity) && quantity > 0 && quantity <= 99) cart[product.id] = quantity
+    }
   }
-  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`
+} catch { /* A damaged browser store must not block ordering. */ }
+let view: View = 'cardapio'
+let category = 'Todos'
+let query = ''
+let notes = ''
+let toastTimer = 0
+const count = () => Object.values(cart).reduce((sum, value) => sum + value, 0)
+const selected = () => products.filter(product => cart[product.id])
+const total = () => selected().some(product => product.price === null) ? 'A confirmar com a loja' : money(selected().reduce((sum, product) => sum + (product.price || 0) * cart[product.id], 0))
+const whatsappReady = /^\d{10,15}$/.test(business.whatsapp)
+document.querySelector('#app')!.innerHTML = '<a class="skip-link" href="#main">Pular para o conteúdo</a><header class="app-header"><a class="brand" href="#cardapio" aria-label="Brasa Burger, cardápio">BRASA<span>BURGER</span></a><nav class="desktop-nav" aria-label="Navegação principal"><a href="#cardapio">Cardápio</a><a href="#sobre">A Brasa</a></nav><a class="cart-link" href="#sacola">' + icon('bag') + ' Sacola <span class="count">0</span></a></header><main id="main" class="shell" tabindex="-1"></main><footer class="footer shell"><span>BRASA BURGER · Projeto demonstrativo</span><span>Fotografias ilustrativas. Valores e atendimento sujeitos à confirmação.</span></footer><nav class="mobile-nav" aria-label="Navegação móvel"><a href="#cardapio">' + icon('menu') + '<span>Cardápio</span></a><a href="#sacola">' + icon('bag') + '<span>Sacola <span class="count">0</span></span></a><a href="#sobre">' + icon('about') + '<span>A Brasa</span></a></nav><div class="toast" role="status" aria-live="polite"></div><dialog class="product-dialog" aria-labelledby="detail-title"></dialog>'
+const main = document.querySelector<HTMLElement>('#main')!
+const dialog = document.querySelector<HTMLDialogElement>('dialog')!
+const notify = (message: string) => {
+  const toast = document.querySelector<HTMLElement>('.toast')!
+  toast.textContent = message; toast.classList.add('show'); clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2800)
 }
-
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-  <header class="site-header" id="top">
-    <a class="brand" href="#top" aria-label="Brasa Burger, início"><span>BRASA</span><i>BURGER</i></a>
-    <nav class="desktop-nav" aria-label="Navegação principal">
-      <a href="#menu">Cardápio</a><a href="#story">Nossa história</a><a href="#experience">Experiência</a><a href="#contact">Contato</a>
-    </nav>
-    <a class="header-cta" href="#menu">Fazer pedido ${icon('arrow')}</a>
-    <button class="menu-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Abrir menu">${icon('menu')}</button>
-  </header>
-  <div class="mobile-nav" id="mobile-nav" aria-hidden="true"><a href="#menu">Cardápio</a><a href="#story">Nossa história</a><a href="#experience">Experiência</a><a href="#contact">Contato</a><a class="mobile-order" href="#menu">Fazer pedido ${icon('arrow')}</a></div>
-
-  <main>
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-backdrop"></div><div class="hero-grain"></div>
-      <div class="hero-content reveal"><p class="eyebrow">ARTISAN BURGERS <span>/</span> MADE WITH PASSION</p><h1 id="hero-title">Não é só<br /><em>um burger.</em><br />É uma experiência.</h1><p class="hero-copy">Pão macio, carne suculenta e combinações que transformam cada mordida em um momento especial.</p><div class="hero-actions"><a class="button button-light" href="#menu">Explorar cardápio ${icon('arrow')}</a><a class="text-link" href="#story">Conheça a brasa <span>↓</span></a></div></div>
-      <div class="hero-stamp">BB<br /><span>EST.</span> 2024</div><div class="scroll-cue"><span>SCROLL TO TASTE</span><i></i></div>
-    </section>
-
-    <section class="manifesto section-dark"><div class="manifesto-label reveal">01 <span>/</span> O MANIFESTO</div><div class="manifesto-copy"><p class="display reveal">O extraordinário<br />está nos <em>detalhes.</em></p><div class="manifesto-lines"><p class="reveal">Um bom hambúrguer começa na escolha dos ingredientes.</p><p class="reveal">A temperatura define o ponto. O queijo encontra a carne.</p><p class="reveal">E quando tudo se encontra, não é apenas fome que se satisfaz.</p><strong class="reveal">É vontade de repetir.</strong></div></div></section>
-
-    <section class="menu-section" id="menu"><div class="section-top reveal"><div><p class="eyebrow dark">02 <span>/</span> O CARDÁPIO</p><h2>Escolha sua próxima<br /><em>obsessão.</em></h2></div><p class="section-intro">Combinações artesanais criadas para quem leva hambúrguer a sério.</p></div><div class="filters" role="group" aria-label="Filtrar cardápio">${(['Todos', 'Clássicos', 'Especiais', 'Acompanhamentos'] as Category[]).map((cat, i) => `<button class="filter ${i === 0 ? 'active' : ''}" data-filter="${cat}">${cat}</button>`).join('')}</div><div class="product-grid" id="product-grid"></div></section>
-
-    <section class="feature"><div class="feature-image"><img src="${images.detail}" alt="Cheeseburger artesanal com queijo derretido" loading="lazy" /></div><div class="feature-copy"><p class="eyebrow">03 <span>/</span> A ASSINATURA</p><h2>Camadas de sabor.<br /><em>Zero compromissos.</em></h2><p>O tipo de burger que pede duas mãos, guardanapo e mais cinco minutos à mesa. Feito para ser lembrado.</p><a class="button button-orange" href="#menu">Ver o cardápio ${icon('arrow')}</a><span class="feature-mark">BRASA<br />&amp; CO.</span></div></section>
-
-    <section class="story" id="story"><div class="story-image reveal"><img src="${images.story}" alt="Interior acolhedor de um restaurante contemporâneo" loading="lazy" /><span class="image-caption">Atmosfera que abre o apetite</span></div><div class="story-copy reveal"><p class="eyebrow dark">04 <span>/</span> NOSSA HISTÓRIA</p><h2>Feito para quem ama<br /><em>burger de verdade.</em></h2><p>A Brasa nasceu de uma obsessão simples: fazer o burger que a gente gostaria de encontrar em qualquer cidade. Sem pressa, sem atalhos e com espaço para cada ingrediente aparecer.</p><p>Da chapa quente ao último detalhe da mesa, cada escolha tem um motivo — e você sente isso na primeira mordida.</p><a class="text-link dark-link" href="#experience">Vem sentir a experiência <span>↗</span></a></div></section>
-
-    <section class="experience" id="experience"><div class="section-top reveal"><div><p class="eyebrow">05 <span>/</span> A EXPERIÊNCIA</p><h2>Bons burgers.<br /><em>Bons momentos.</em></h2></div><p class="section-intro light">A mesa fica melhor quando a comida tem história para contar.</p></div><div class="experience-grid"><figure class="exp-large reveal"><img src="${images.table}" alt="Hambúrguer e batatas servidos à mesa" loading="lazy" /><figcaption>O ritual começa quando chega à mesa</figcaption></figure><figure class="exp-small reveal"><img src="${images.kitchen}" alt="Preparo artesanal em uma cozinha de restaurante" loading="lazy" /><figcaption>Feito na hora, do nosso jeito</figcaption></figure></div></section>
-
-    <section class="final-cta" id="contact"><div class="final-mark">BRASA<br /><span>BURGER</span></div><p class="eyebrow">06 <span>/</span> O PRÓXIMO MOMENTO</p><h2>A fome passa.<br /><em>A vontade de voltar fica.</em></h2><p>Explore nossas combinações e escolha o seu próximo favorito.</p><a class="button button-light" href="#menu">Fazer meu pedido ${icon('arrow')}</a></section>
-  </main>
-  <footer class="footer"><div class="footer-brand"><a class="brand" href="#top"><span>BRASA</span><i>BURGER</i></a><p>Artesanal, intenso,<br />feito na brasa.</p></div><div class="footer-links"><div><span>Explore</span><a href="#menu">Cardápio</a><a href="#story">Nossa história</a><a href="#experience">Experiência</a></div><div><span>Fale com a gente</span><p>Contato em configuração</p><p>Horários em configuração</p></div><div><span>Siga a brasa</span><a href="#contact" aria-label="Instagram">Instagram ${icon('instagram')}</a></div></div><div class="footer-bottom"><span>© 2024 Brasa Burger</span><span>Fotografias: Unsplash — uso demonstrativo</span><a href="#top">Voltar ao topo ↑</a></div></footer>
-`
-
-const renderProducts = (filter: Category = 'Todos') => {
-  const grid = document.querySelector<HTMLDivElement>('#product-grid')!
-  const visible = products.filter((product) => filter === 'Todos' || product.category === filter)
-  grid.innerHTML = visible.map((product) => `<article class="product-card reveal visible"><div class="product-image"><img src="${product.image}" alt="${product.name} — ${product.description}" loading="lazy" /><span>${product.number}</span><button aria-label="Adicionar ${product.name} ao pedido" class="add-button">+</button></div><div class="product-meta"><div><span class="category">${product.category}</span><h3>${product.name}</h3></div><p>${product.description}</p></div></article>`).join('')
+const persist = () => {
+  try { localStorage.setItem(key, JSON.stringify(cart)) } catch { notify('Sacola mantida nesta sessão. Seu navegador não permitiu salvá-la.') }
+  document.querySelectorAll('.count').forEach(element => { element.textContent = String(count()) })
 }
-renderProducts()
-
-const header = document.querySelector<HTMLElement>('.site-header')!
-const menuToggle = document.querySelector<HTMLButtonElement>('.menu-toggle')!
-const mobileNav = document.querySelector<HTMLElement>('.mobile-nav')!
-menuToggle.addEventListener('click', () => { const open = menuToggle.getAttribute('aria-expanded') === 'true'; menuToggle.setAttribute('aria-expanded', String(!open)); menuToggle.setAttribute('aria-label', open ? 'Abrir menu' : 'Fechar menu'); menuToggle.innerHTML = icon(open ? 'menu' : 'close'); mobileNav.classList.toggle('open', !open); mobileNav.setAttribute('aria-hidden', String(open)) })
-document.querySelectorAll<HTMLAnchorElement>('.mobile-nav a').forEach((link) => link.addEventListener('click', () => { menuToggle.click() }))
-window.addEventListener('scroll', () => header.classList.toggle('scrolled', window.scrollY > 30), { passive: true })
-document.querySelectorAll<HTMLButtonElement>('.filter').forEach((button) => button.addEventListener('click', () => { document.querySelector('.filter.active')?.classList.remove('active'); button.classList.add('active'); renderProducts(button.dataset.filter as Category) }))
-const observer = new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) { entry.target.classList.add('visible'); observer.unobserve(entry.target) } }), { threshold: 0.12 })
-document.querySelectorAll('.reveal').forEach((element) => observer.observe(element))
+const summary = (checkout = false) => '<section class="summary" aria-label="Resumo da sacola"><h2>Seu pedido</h2><div class="summary-row"><span>Itens na sacola</span><strong>' + count() + '</strong></div><div class="summary-row"><span>Total</span><strong>' + (count() ? total() : 'Nenhum item') + '</strong></div><p>Disponibilidade, valores e entrega são confirmados na conversa.</p>' + (!whatsappReady ? '<p class="notice">Pedidos pelo WhatsApp ainda indisponíveis. Você pode montar sua sacola e voltar depois.</p>' : '') + (checkout ? '<button class="primary" data-checkout ' + (!count() || !whatsappReady ? 'disabled' : '') + '>Continuar no WhatsApp ' + icon('arrow') + '</button>' : '<a class="primary" href="#sacola">Revisar sacola ' + icon('arrow') + '</a>') + '</section>'
+const productCards = () => {
+  const items = products.filter(product => (category === 'Todos' || product.category === category) && (product.name + ' ' + product.description).toLocaleLowerCase('pt-BR').includes(query.toLocaleLowerCase('pt-BR')))
+  return items.length ? items.map(product => '<article class="product-card"><button class="product-photo" data-detail="' + product.id + '" aria-label="Ver detalhes de ' + product.name + '"><img src="' + product.image + '" alt="Fotografia ilustrativa de ' + product.name + '" width="600" height="480" loading="lazy"></button><div class="product-content"><span class="product-category">' + product.category + '</span><h3><button data-detail="' + product.id + '">' + product.name + '</button></h3><p>' + product.description + '</p><div class="product-bottom"><span class="price">' + money(product.price) + '</span><button class="secondary" data-add="' + product.id + '" aria-label="Adicionar ' + product.name + '">' + icon('plus') + ' Adicionar</button></div></div></article>').join('') : '<div class="empty-state"><h3>Nenhum burger por aqui.</h3><p>Tente outro nome ou veja todas as categorias.</p><button class="secondary" data-reset>Limpar filtros</button></div>'
+}
+const updateProducts = () => {
+  document.querySelector('#products')!.innerHTML = productCards()
+  document.querySelectorAll<HTMLButtonElement>('[data-category]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.category === category)))
+  document.querySelector<HTMLButtonElement>('[data-clear]')!.hidden = !query
+}
+function render() {
+  document.title = ({ cardapio: 'Cardápio', sacola: 'Sua sacola', sobre: 'A Brasa' })[view] + ' · Brasa Burger'
+  document.querySelectorAll<HTMLAnchorElement>('nav a').forEach(link => {
+    if (link.hash === '#' + view) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current')
+  })
+  if (view === 'cardapio') {
+    main.innerHTML = '<section class="intro"><div class="intro-copy"><h1>Fome de<br><em>algo de verdade.</em></h1><p>Escolha seu burger, monte a sacola e combine seu pedido direto com a Brasa.</p><a href="#catalogo" class="button">Escolher meu burger ' + icon('arrow') + '</a></div><img src="' + products[0].image + '" alt="Hambúrguer artesanal — fotografia ilustrativa" width="900" height="640" fetchpriority="high"></section><div class="catalog-layout"><section id="catalogo"><div class="catalog-toolbar"><h2>O que vai ser hoje?</h2><div class="search-field"><label for="search">Buscar no cardápio</label><div><input id="search" type="search" placeholder="Burger, bacon, batatas…" value="' + esc(query) + '"><button data-clear aria-label="Limpar busca" ' + (!query ? 'hidden' : '') + '>' + icon('close') + '</button></div></div></div><div class="filters" role="group" aria-label="Categorias">' + ['Todos', 'Clássicos', 'Especiais', 'Acompanhamentos'].map(label => '<button data-category="' + label + '" aria-pressed="' + (category === label) + '">' + label + '</button>').join('') + '</div><div class="product-grid" id="products">' + productCards() + '</div></section><aside class="order-aside">' + summary() + '</aside></div>'
+  } else if (view === 'sacola') {
+    main.innerHTML = '<div class="page-heading"><a href="#cardapio">Voltar ao cardápio</a><h1>Sua sacola.</h1><p>Do seu jeito, até o último detalhe.</p></div>' + (count() ? '<div class="cart-layout"><section aria-label="Itens selecionados">' + selected().map(product => '<article class="cart-item"><img src="' + product.image + '" alt="" width="120" height="120"><div class="cart-item-info"><h2>' + product.name + '</h2><p>' + money(product.price) + '</p><button class="remove" data-remove="' + product.id + '">Remover ' + product.name + '</button></div><div class="quantity"><button data-change="' + product.id + '" data-delta="-1" aria-label="Diminuir ' + product.name + '">' + icon('minus') + '</button><span aria-label="Quantidade">' + cart[product.id] + '</span><button data-change="' + product.id + '" data-delta="1" aria-label="Aumentar ' + product.name + '" ' + (cart[product.id] >= 99 ? 'disabled' : '') + '>' + icon('plus') + '</button></div></article>').join('') + '<div class="field"><label for="notes">Observações do pedido <span>(opcional)</span></label><textarea id="notes" maxlength="500" rows="4" placeholder="Ex.: sem cebola. A loja confirma se pode atender.">' + esc(notes) + '</textarea><p>Até 500 caracteres. Evite incluir dados de pagamento.</p></div></section><aside>' + summary(true) + '</aside></div>' : '<section class="empty-state"><span class="empty-icon">' + icon('bag') + '</span><h2>Falta escolher seu favorito.</h2><p>Os produtos que você adicionar aparecem aqui.</p><a class="primary" href="#cardapio">Explorar cardápio ' + icon('arrow') + '</a></section>')
+  } else {
+    main.innerHTML = '<div class="page-heading"><h1>Prazer, Brasa.</h1><p>Um conceito de hamburgueria artesanal, feito para quem gosta de escolher cada mordida.</p></div><section class="about-layout"><img src="' + products[2].image + '" alt="Fotografia ilustrativa de hambúrguer" width="800" height="800"><div><h2>O sabor começa<br>na escolha.</h2><p>Clássicos, combinações especiais e acompanhamentos. Um cardápio direto para você encontrar o que combina com a sua fome.</p><p>Esta loja é um projeto demonstrativo. As fotografias são ilustrativas e não representam pratos ou instalações reais da Brasa.</p><a class="primary" href="#cardapio">Conhecer o cardápio ' + icon('arrow') + '</a></div></section><section class="steps"><h2>Como funciona o pedido</h2><ol><li><h3>Escolha seus favoritos</h3><p>Adicione os produtos e ajuste as quantidades.</p></li><li><h3>Revise a sacola</h3><p>Confira os itens e inclua uma observação, se quiser.</p></li><li><h3>Converse com a loja</h3><p>Quando o atendimento estiver disponível, abra o WhatsApp e envie a mensagem. A loja confirma valores, disponibilidade e entrega.</p></li></ol></section>'
+  }
+  persist()
+}
+const navigate = () => {
+  const hash = location.hash.slice(1)
+  if (hash === 'catalogo' && document.querySelector('#catalogo')) { document.querySelector('#catalogo')!.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); return }
+  if (hash === 'main') { main.focus(); return }
+  view = hash === 'sacola' || hash === 'sobre' ? hash : 'cardapio'
+  render(); window.scrollTo(0, 0); main.focus({ preventScroll: true })
+}
+window.addEventListener('hashchange', navigate)
+document.addEventListener('input', event => {
+  const target = event.target as HTMLInputElement
+  if (target.id === 'search') { query = target.value; updateProducts() }
+  if (target.id === 'notes') notes = target.value.slice(0, 500)
+})
+document.addEventListener('click', event => {
+  const button = (event.target as Element).closest<HTMLElement>('button')
+  if (!button) return
+  if (button.hasAttribute('data-clear') || button.hasAttribute('data-reset')) {
+    query = ''; if (button.hasAttribute('data-reset')) category = 'Todos'
+    const input = document.querySelector<HTMLInputElement>('#search')!; input.value = ''; updateProducts(); input.focus()
+  }
+  if (button.dataset.category) { category = button.dataset.category; updateProducts() }
+  const id = button.dataset.add || button.dataset.change || button.dataset.remove || button.dataset.detail
+  const product = products.find(item => item.id === id)
+  if (product && button.dataset.detail) {
+    dialog.innerHTML = '<button class="dialog-close secondary" data-close aria-label="Fechar detalhes">' + icon('close') + '</button><img class="detail-image" src="' + product.image + '" alt="Fotografia ilustrativa de ' + product.name + '" width="600" height="480"><div class="detail-body"><span class="product-category">' + product.category + '</span><h2 id="detail-title">' + product.name + '</h2><p>' + product.description + '</p><p>Fotografia ilustrativa. Consulte ingredientes e restrições alimentares com a loja.</p><div class="detail-actions"><strong>' + money(product.price) + '</strong><button class="primary" data-add="' + product.id + '">Adicionar à sacola ' + icon('plus') + '</button></div></div>'
+    dialog.showModal()
+  }
+  if (button.hasAttribute('data-close')) dialog.close()
+  if (product && (button.dataset.add || button.dataset.change || button.dataset.remove)) {
+    const quantity = button.dataset.remove ? 0 : Math.min(99, (cart[product.id] || 0) + (button.dataset.add ? 1 : Number(button.dataset.delta)))
+    if (quantity <= 0) delete cart[product.id]; else cart[product.id] = quantity
+    if (dialog.open) dialog.close()
+    if (view === 'sacola') {
+      const delta = button.dataset.delta; render()
+      const target = document.querySelector<HTMLElement>('[data-change="' + product.id + '"][data-delta="' + delta + '"]') || main
+      target.focus({ preventScroll: true })
+    } else { document.querySelector('.order-aside')!.innerHTML = summary(); persist() }
+    notify(button.dataset.add ? product.name + ' adicionado à sacola.' : quantity <= 0 ? product.name + ' removido da sacola.' : 'Quantidade atualizada: ' + quantity + '.')
+  }
+  if (button.hasAttribute('data-checkout') && count() && whatsappReady) {
+    const message = ['Olá! Gostaria de consultar este pedido:', ...selected().map(product => cart[product.id] + ' × ' + product.name), notes ? 'Observações: ' + notes : '', 'Por favor, confirmem valores, disponibilidade e opções de entrega.'].filter(Boolean).join('\n')
+    window.open('https://wa.me/' + business.whatsapp + '?text=' + encodeURIComponent(message), '_blank', 'noopener,noreferrer')
+  }
+})
+dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close() } })
+navigate()
